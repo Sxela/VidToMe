@@ -102,14 +102,18 @@ def make_tome_block(block_class: Type[torch.nn.Module]) -> Type[torch.nn.Module]
         _parent = block_class
 
         def _forward(self, x: torch.Tensor, context: torch.Tensor = None) -> torch.Tensor:
-            m_a, m_c, m_m, u_a, u_c, u_m = compute_merge(
-                self, x, self._tome_info)
+
+            x_n = self.norm1(x)
+
+            m_a, u_a, x_n = compute_merge(
+                    self, x_n, self._tome_info)
+
 
             # This is where the meat of the computation happens
-            x = u_a(self.attn1(m_a(self.norm1(x)),
+            x = u_a(self.attn1((x_n),
                     context=context if self.disable_self_attn else None)) + x
-            x = u_c(self.attn2(m_c(self.norm2(x)), context=context)) + x
-            x = u_m(self.ff(m_m(self.norm3(x)))) + x
+            x = (self.attn2((self.norm2(x)), context=context)) + x
+            x = (self.ff((self.norm3(x)))) + x
 
             return x
 
@@ -206,7 +210,7 @@ def make_diffusers_tome_block(block_class: Type[torch.nn.Module]) -> Type[torch.
 def hook_tome_model(model: torch.nn.Module):
     """ Adds a forward pre hook to get the image size. This hook can be removed with remove_patch. """
     def hook(module, args):
-        module._tome_info["size"] = (args[0].shape[2], args[0].shape[3])
+        # module._tome_info["size"] = (args[0].shape[2], args[0].shape[3])
         return None
 
     model._tome_info["hooks"].append(model.register_forward_pre_hook(hook))
@@ -242,7 +246,8 @@ def apply_patch(
         include_control: bool = False,
         align_batch: bool = False,
         target_stride: int = 4,
-        global_rand=0.5):
+        global_rand=0.5,
+        size=None):
     """
     Patches a stable diffusion model with VidToMe.
     Apply this to the highest level stable diffusion object (i.e., it should have a .model.diffusion_model).
@@ -296,7 +301,7 @@ def apply_patch(
 
     for diffusion_model in diffusion_models:
         diffusion_model._tome_info = {
-            "size": None,
+            "size": size,
             "hooks": [],
             "args": {
                 "max_downsample": max_downsample,
